@@ -1,0 +1,90 @@
+using System;
+using System.Linq;
+using System.Threading.Tasks;
+using Discord;
+using Discord.WebSocket;
+
+class Program
+{
+    private static DiscordSocketClient _client;
+    private const string Token = "MTM1NTY3OTM2ODY0NjYyNzMyOQ.GvOdkx.gaqCWQoyzGPwv8qUhbN2MZnlNj_yzWsCvj7csE";
+    private const ulong GuildId = 1332170705982324758; // Your server ID
+    private const ulong TicketChannelId = 1332184478747201677; // Channel where the embed will be sent
+    private const ulong TicketCategoryId = 1337248715701751808; // Category where tickets will be created
+
+    static void Main(string[] args) => new Program().RunBotAsync().GetAwaiter().GetResult();
+
+    public async Task RunBotAsync()
+    {
+        _client = new DiscordSocketClient(new DiscordSocketConfig { GatewayIntents = GatewayIntents.All });
+        _client.Log += Log;
+        _client.Ready += SendTicketEmbed;
+        _client.ButtonExecuted += HandleButtonClick;
+
+        await _client.LoginAsync(TokenType.Bot, Token);
+        await _client.StartAsync();
+        await Task.Delay(-1);
+    }
+
+    private async Task SendTicketEmbed()
+    {
+        var guild = _client.GetGuild(GuildId);
+        var channel = guild.GetTextChannel(TicketChannelId);
+
+        var embed = new EmbedBuilder()
+            .WithTitle("🎟️ Purchase Tickets")
+            .WithDescription("Click the button below to create a purchase ticket.")
+            .WithColor(Color.Blue)
+            .Build();
+
+        var button = new ComponentBuilder()
+            .WithButton("Create Ticket", "create_ticket", ButtonStyle.Primary)
+            .Build();
+
+        await channel.SendMessageAsync(embed: embed, components: button);
+    }
+
+    private async Task HandleButtonClick(SocketMessageComponent component)
+    {
+        if (component.Data.CustomId == "create_ticket")
+        {
+            var guild = _client.GetGuild(GuildId);
+            var category = guild.GetCategoryChannel(TicketCategoryId);
+            var user = component.User as SocketGuildUser;
+
+            // Check if the user already has a ticket open
+            var existingChannel = guild.TextChannels.FirstOrDefault(c => c.Name == $"ticket-{user.Id}");
+            if (existingChannel != null)
+            {
+                await component.RespondAsync("You already have an open ticket!", ephemeral: true);
+                return;
+            }
+
+            // Create a new private ticket channel
+            var permissions = new OverwritePermissions(viewChannel: PermValue.Allow, sendMessages: PermValue.Allow);
+            var denyPermissions = new OverwritePermissions(viewChannel: PermValue.Deny);
+            var everyoneRole = guild.EveryoneRole;
+
+            var ticketChannel = await guild.CreateTextChannelAsync($"cloud-{user.Username}", c =>
+            {
+                c.CategoryId = TicketCategoryId;
+                c.PermissionOverwrites = new System.Collections.Generic.List<Overwrite>
+    {
+        new Overwrite(user.Id, PermissionTarget.User, permissions),
+        new Overwrite(everyoneRole.Id, PermissionTarget.Role, denyPermissions)
+    };
+            });
+
+
+            await ticketChannel.SendMessageAsync($"Welcome {user.Mention}, a staff member will assist you shortly!\nYour Discord ID: `{user.Id}`");
+
+            await component.RespondAsync($"Your ticket has been created: {ticketChannel.Mention}", ephemeral: true);
+        }
+    }
+
+    private Task Log(LogMessage msg)
+    {
+        Console.WriteLine(msg);
+        return Task.CompletedTask;
+    }
+}
